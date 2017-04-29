@@ -70,6 +70,7 @@ outfile = open(sys.argv[2], 'w')
 # reference files
 orthologue_file = "/home/users/a.steep/databases/ensembl/chicken_human_orthologues_full_annotation.txt"
 cosmic_cgc_file = "/home/users/a.steep/databases/cosmic/cosmic_CGC_gene_list_2017_01_03.tsv"
+dbSNP_file = "/home/users/a.steep/databases/dbsnp/snp/organisms/chicken_9031/VCF/00-All.vcf"
 
 # Create a dictionary of mutated genes to tally distinct sample counts
 samples_by_gene = {}
@@ -119,7 +120,6 @@ for o_line in open(orthologue_file):
 		if c_e_gene_id in chicken_ensembl_gene_id2human_ensembl_gene_name_ortho.keys() and ortho_score == '1':
 			chicken_ensembl_gene_id2human_ensembl_gene_name_ortho[c_e_gene_id].add(h_e_gene_name)
 
-
 # Create a set of mutated genes in cancer gene consensus
 cgc_gene_set = set()
 for cgc_line in open(cosmic_cgc_file):
@@ -128,11 +128,49 @@ for cgc_line in open(cosmic_cgc_file):
 	cgc_gene = cgc_col[0]
 	cgc_gene_set.add(cgc_gene)
 
+# Create a dictionary of dbSNP rs numbers and snps for chicken genome
+dbsnps2rsnum = {}
+for db_line in open(dbSNP_file):
+	if db_line[0] != '#':
+		db_line = db_line.rstrip()
+		db_col = db_line.split('\t')
+		CHR = db_col[0]
+		POS = db_col[1]
+		ID = db_col[2]
+		REF = db_col[3]
+		ALT = db_col[4]
+		VAR = CHR+POS+REF+ALT
+		if VAR not in dbsnps2rsnum.keys():
+			dbsnps2rsnum[VAR] = ID
+
 # Create a set of final variants for output that pass filters
 final_var_set = set()
+# Create a quick list from 0-33 as strings
+chr_list = []
+for n in range(34):
+	chr_list.append(str(n))
 
-# Write a header for the outfile
-outfile.write('#CHROM'+'\t'+'POS'+'\t'+'REF'+'\t'+'ALT'+'\t'+'MUT'+'\t'+'IMPACT'+'\t'+'SYMBOL'+'\t'+'GENE_ID'+'\t'+'ORTHOLOGUE'+'\t'+'TSN_VAR'+'\t'+'TSN_GENE'+'\t'+'SAMPLE'+'\t'+'VAC'+'\t'+'VAF'+'\t'+'NUM_TOOLS'+'\t'+'CGC_STATUS'+'\t'+'FILTER'+'\n')
+# Write a header for the outfile	
+outfile.write('##CHROM:'+' '+'Chromosome' + '\n')
+outfile.write('##POS:'+' '+'Position(s)' + '\n')
+outfile.write('##RS_ID:'+' '+'Reference SNP ID number (rs ID' + '\n')
+outfile.write('##REF:'+' '+'Reference allele' + '\n')
+outfile.write('##ALT:'+' '+'Alternative allele' + '\n')
+outfile.write('##VAR_ID:'+' '+'Custom annotation of variant (6x7MDSNP01_000001000: line 6x7, Mareks Disease, chr1, pos1000)' + '\n')
+outfile.write('##VAR_TYPE:'+' '+'Mutation type' + '\n')
+outfile.write('##IMPACT:'+' '+'VEP predicted functional impact' + '\n')
+outfile.write('##SYMBOL:'+' '+'Ensembl gene symbol' + '\n')
+outfile.write('##GENE_ID:'+' '+'Ensembl gene id' + '\n')
+outfile.write('##ORTHOLOGUE:'+' '+'High-confidence ensembl chicken to human orthologue' + '\n')
+outfile.write('##TSN_VAR:'+' '+'Number of tumors with specific mutation' + '\n')
+outfile.write('##TSN_GENE:'+' '+'Number of tumors with mutations in gene' + '\n')
+outfile.write('##SAMPLE:'+' '+'Samples with mutation' + '\n')
+outfile.write('##VAC:'+' '+'Variant allele count' + '\n')
+outfile.write('##VAF:'+' '+'Variant allele frequency' + '\n')
+outfile.write('##NUM_TOOLS:'+' '+'Number of variant callers that predicted variant' + '\n')
+outfile.write('##CGC_STATUS:'+' '+'Whether the mutated gene is in COSMICs Cancer Gene Consensus' + '\n')
+outfile.write('##FILTER:'+' '+'Filter used for prioritizing variants' + '\n')
+outfile.write('#CHROM'+'\t'+'POS'+'\t'+'RS_ID'+'\t'+'REF'+'\t'+'ALT'+'\t'+'VAR_ID'+'\t'+'VAR_TYPE'+'\t'+'IMPACT'+'\t'+'SYMBOL'+'\t'+'GENE_ID'+'\t'+'ORTHOLOGUE'+'\t'+'TSN_VAR'+'\t'+'TSN_GENE'+'\t'+'SAMPLE'+'\t'+'VAC'+'\t'+'VAF'+'\t'+'NUM_TOOLS'+'\t'+'CGC_STATUS'+'\t'+'FILTER'+'\n')
 
 # Iterate through the infile and collect additional information for each filter
 for inline in open(infile):
@@ -153,6 +191,26 @@ for inline in open(infile):
 		insample = incol[9].replace('|', ';')
 		invac = incol[10].replace('|', ';')
 		invaf = incol[11].replace('|', ';')
+		# Format for variant ID
+		if len(inref) == 1 and len(inalt) == 1:
+			var_type = 'SNV'
+		elif len(inref) > 1:
+			var_type = 'DEL'
+		elif len(inalt) > 1:
+			var_type = 'INS'
+		# Format for variant ID
+		if str(inchr) in chr_list:
+			chr_id = str(inchr).zfill(2)
+		else:
+			chr_id = str(inchr)
+		# Format for variant ID
+		pos_id = str(inpos).zfill(9)
+		variant_id = '6x7'+'MD'+var_type+chr_id+'_'+pos_id
+		# Annotate SNPs with dbSNP rs number
+		if var_id in dbsnps2rsnum.keys():
+			rs_num = str(dbsnps2rsnum[var_id])
+		else:
+			rs_num = '.'
 		# Annotate validation site ID
 		# Annotate gene if it has a high confidence orthologue
 		if ingeneid in chicken_ensembl_gene_id2human_ensembl_gene_name_ortho.keys():
@@ -174,11 +232,11 @@ for inline in open(infile):
 		vep_samples = set(incol[9].split('|'))
 		# If the variant is an snv
 		if len(inref) == 1 and len(inalt) == 1:
-			var_type = 'snv'
+			snp_or_indel = 'snv'
 		elif len(inref) != 1 or len(inalt) != 1:
-			var_type = 'indel'
+			snp_or_indel = 'indel'
 		for vep_sample in vep_samples:
-			vep_file = "./data/somaticseq_vcf/"+vep_sample+"_somaticseq_"+var_type+"_vep.vcf"
+			vep_file = "./data/somaticseq_vcf/"+vep_sample+"_somaticseq_"+snp_or_indel+"_vep.vcf"
 			for vep_line in open(vep_file):
 				if vep_line[0] != '#':
 					vep_line = vep_line.rstrip()
@@ -200,51 +258,53 @@ for inline in open(infile):
 		if int(intsn_by_var) > 1 and ortho_status == 'Yes' and orthologue[0:2] != 'OR' and var_id not in final_var_set:
 			filter_status = '1'
 			final_var_set.add(var_id)
-			outfile.write(inchr+'\t'+inpos+'\t'+inref+'\t'+inalt+'\t'+inmut+'\t'+inimpact+'\t'+insymbol+'\t'+ingeneid+'\t'+orthologue+'\t'+intsn_by_var+'\t'+intsn_by_gene+'\t'+insample+'\t'+invac+'\t'+invaf+'\t'+alg_num+'\t'+cgc_status+'\t'+filter_status+'\n')
+			outfile.write(inchr+'\t'+inpos+'\t'+rs_num+'\t'+inref+'\t'+inalt+'\t'+variant_id+'\t'+inmut+'\t'+inimpact+'\t'+insymbol+'\t'+ingeneid+'\t'+orthologue+'\t'+intsn_by_var+'\t'+intsn_by_gene+'\t'+insample+'\t'+invac+'\t'+invaf+'\t'+alg_num+'\t'+cgc_status+'\t'+filter_status+'\n')
 		# Filter 2: Variants in genes, which are mutated with different variants in multiple samples (filter out undesirable genes, e.g. olfactory receptors)
 		if int(intsn_by_gene) > 1 and ortho_status == 'Yes' and orthologue[0:2] != 'OR' and var_id not in final_var_set:
 			filter_status = '2'
 			final_var_set.add(var_id)
-			outfile.write(inchr+'\t'+inpos+'\t'+inref+'\t'+inalt+'\t'+inmut+'\t'+inimpact+'\t'+insymbol+'\t'+ingeneid+'\t'+orthologue+'\t'+intsn_by_var+'\t'+intsn_by_gene+'\t'+insample+'\t'+invac+'\t'+invaf+'\t'+alg_num+'\t'+cgc_status+'\t'+filter_status+'\n')
+			outfile.write(inchr+'\t'+inpos+'\t'+rs_num+'\t'+inref+'\t'+inalt+'\t'+variant_id+'\t'+inmut+'\t'+inimpact+'\t'+insymbol+'\t'+ingeneid+'\t'+orthologue+'\t'+intsn_by_var+'\t'+intsn_by_gene+'\t'+insample+'\t'+invac+'\t'+invaf+'\t'+alg_num+'\t'+cgc_status+'\t'+filter_status+'\n')
 		# Filter 3: Variants that are found in COSMIC's cancer gene consensus (filter out undesirable genes, e.g. olfactory receptors)
 		if cgc_status == 'Yes' and ortho_status == 'Yes' and orthologue[0:2] != 'OR' and var_id not in final_var_set:
 			filter_status = '3'
 			final_var_set.add(var_id)
-			outfile.write(inchr+'\t'+inpos+'\t'+inref+'\t'+inalt+'\t'+inmut+'\t'+inimpact+'\t'+insymbol+'\t'+ingeneid+'\t'+orthologue+'\t'+intsn_by_var+'\t'+intsn_by_gene+'\t'+insample+'\t'+invac+'\t'+invaf+'\t'+alg_num+'\t'+cgc_status+'\t'+filter_status+'\n')
+			outfile.write(inchr+'\t'+inpos+'\t'+rs_num+'\t'+inref+'\t'+inalt+'\t'+variant_id+'\t'+inmut+'\t'+inimpact+'\t'+insymbol+'\t'+ingeneid+'\t'+orthologue+'\t'+intsn_by_var+'\t'+intsn_by_gene+'\t'+insample+'\t'+invac+'\t'+invaf+'\t'+alg_num+'\t'+cgc_status+'\t'+filter_status+'\n')
 		# Filter 4: Variants with a consensus of gene callers greater than 1 and variant allele count greater than one
 		for call_num in alg_num.split(';'):
 			for vac in invac.split(';'):
 				if int(call_num) > 1 and int(vac) > 1 and ortho_status == 'Yes' and orthologue[0:2] != 'OR' and var_id not in final_var_set:
 					filter_status = '4'
 					final_var_set.add(var_id)
-					outfile.write(inchr+'\t'+inpos+'\t'+inref+'\t'+inalt+'\t'+inmut+'\t'+inimpact+'\t'+insymbol+'\t'+ingeneid+'\t'+orthologue+'\t'+intsn_by_var+'\t'+intsn_by_gene+'\t'+insample+'\t'+invac+'\t'+invaf+'\t'+alg_num+'\t'+cgc_status+'\t'+filter_status+'\n')
+					outfile.write(inchr+'\t'+inpos+'\t'+rs_num+'\t'+inref+'\t'+inalt+'\t'+variant_id+'\t'+inmut+'\t'+inimpact+'\t'+insymbol+'\t'+ingeneid+'\t'+orthologue+'\t'+intsn_by_var+'\t'+intsn_by_gene+'\t'+insample+'\t'+invac+'\t'+invaf+'\t'+alg_num+'\t'+cgc_status+'\t'+filter_status+'\n')
 		# Filter 5: Variants with a mutation that is associated with a high impact (annotaion via VEP) and variant allele count greater than 1
 		if inimpact == 'HIGH' and int(vac) > 1 and ortho_status == 'Yes' and orthologue[0:2] != 'OR' and var_id not in final_var_set:
 			filter_status = '5'
 			final_var_set.add(var_id)
-			outfile.write(inchr+'\t'+inpos+'\t'+inref+'\t'+inalt+'\t'+inmut+'\t'+inimpact+'\t'+insymbol+'\t'+ingeneid+'\t'+orthologue+'\t'+intsn_by_var+'\t'+intsn_by_gene+'\t'+insample+'\t'+invac+'\t'+invaf+'\t'+alg_num+'\t'+cgc_status+'\t'+filter_status+'\n')
+			outfile.write(inchr+'\t'+inpos+'\t'+rs_num+'\t'+inref+'\t'+inalt+'\t'+variant_id+'\t'+inmut+'\t'+inimpact+'\t'+insymbol+'\t'+ingeneid+'\t'+orthologue+'\t'+intsn_by_var+'\t'+intsn_by_gene+'\t'+insample+'\t'+invac+'\t'+invaf+'\t'+alg_num+'\t'+cgc_status+'\t'+filter_status+'\n')
 		# Filter 6: Variants with a consensus of gene callers greater than 1
 		for call_num in alg_num.split(';'):
 			for vac in invac.split(';'):
 				if int(call_num) > 1 and ortho_status == 'Yes' and orthologue[0:2] != 'OR' and var_id not in final_var_set:
 					filter_status = '6'
 					final_var_set.add(var_id)
-					outfile.write(inchr+'\t'+inpos+'\t'+inref+'\t'+inalt+'\t'+inmut+'\t'+inimpact+'\t'+insymbol+'\t'+ingeneid+'\t'+orthologue+'\t'+intsn_by_var+'\t'+intsn_by_gene+'\t'+insample+'\t'+invac+'\t'+invaf+'\t'+alg_num+'\t'+cgc_status+'\t'+filter_status+'\n')
+					outfile.write(inchr+'\t'+inpos+'\t'+rs_num+'\t'+inref+'\t'+inalt+'\t'+variant_id+'\t'+inmut+'\t'+inimpact+'\t'+insymbol+'\t'+ingeneid+'\t'+orthologue+'\t'+intsn_by_var+'\t'+intsn_by_gene+'\t'+insample+'\t'+invac+'\t'+invaf+'\t'+alg_num+'\t'+cgc_status+'\t'+filter_status+'\n')
 		# Filter 7: The remaining variants
 		if var_id not in final_var_set:
 			filter_status = '7'
 			final_var_set.add(var_id)
-			outfile.write(inchr+'\t'+inpos+'\t'+inref+'\t'+inalt+'\t'+inmut+'\t'+inimpact+'\t'+insymbol+'\t'+ingeneid+'\t'+orthologue+'\t'+intsn_by_var+'\t'+intsn_by_gene+'\t'+insample+'\t'+invac+'\t'+invaf+'\t'+alg_num+'\t'+cgc_status+'\t'+filter_status+'\n')
+			outfile.write(inchr+'\t'+inpos+'\t'+rs_num+'\t'+inref+'\t'+inalt+'\t'+variant_id+'\t'+inmut+'\t'+inimpact+'\t'+insymbol+'\t'+ingeneid+'\t'+orthologue+'\t'+intsn_by_var+'\t'+intsn_by_gene+'\t'+insample+'\t'+invac+'\t'+invaf+'\t'+alg_num+'\t'+cgc_status+'\t'+filter_status+'\n')
 # Close outfile
 outfile.close
 ###################################
 
 # Sort the output file by filter order to prioiritize varaints
-sort -k17,17n ./data/somatic_snvs_and_indels_final_priority.int > \
+(grep "^#" ./data/somatic_snvs_and_indels_final_priority.int; \
+grep -v "^#" ./data/somatic_snvs_and_indels_final_priority.int | sort -k19,19n) > \
 ./data/somatic_snvs_and_indels_final_priority.txt
 
 # Grab the first 150 prioiritized variants
-head -n151 ./data/somatic_snvs_and_indels_final_priority.txt > \
+(grep "^#" ./data/somatic_snvs_and_indels_final_priority.txt; \
+grep -v "^#" ./data/somatic_snvs_and_indels_final_priority.txt | head -n150) > \
 ./data/somatic_snvs_and_indels_final_priority_n150.txt
 
 
@@ -267,11 +327,10 @@ cdval
 # http://biopython.org/DIST/docs/tutorial/Tutorial.html#htoc218
 # Downloaded Biopython from http://biopython.org/wiki/Download version 1.69 on April 23, 2017
 
-# Obtian th 100 bp flanking regions up- and down-stream from each somatic variant
+# Obtian the 100 bp flanking regions up- and down-stream from each somatic variant
 python ./scripts/somatic_snvs_indels_flanking_regions.py \
 ./data/somatic_snvs_and_indels_final_priority_n150.txt \
-./results/somatic_snvs_indels_flanking_100bp_top150.int
-
+./results/somatic_snvs_indels_flanking_100bp_top150.txt
 
 # ./scripts/somatic_snvs_indels_flanking_regions.py
 #####################################
@@ -286,6 +345,8 @@ from difflib import SequenceMatcher
 from Bio import motifs
 from Bio.Seq import Seq
 from pyfaidx import FastaVariant
+import numpy
+import pandas
 
 # infile
 infile = sys.argv[1]
@@ -303,8 +364,23 @@ for bamfile in listdir("/home/proj/MDW_genomics/xu/final_bam"):
 outfile = open(sys.argv[2], 'w')
 delinquent_file = open("./data/delinquent_sequences_vars.txt" , 'w')
 
-# Create a header for output file
-outfile.write('#CHROM'+'\t'+'POS'+'\t'+'REF'+'\t'+'ALT'+'\t'+'VARIANT_TYPE'+'\t'+'SAMPLE'+'\t'+'DOWNSTREAM_POS'+'\t'+'UPSTREAM_POS'+'\t'+'IUPAC_CONSENSUS_SEQ_100BP_DOWNSTREAM'+'\t'+'SOMATIC_VARIANT'+'\t'+'IUPAC_CONSENSUS_SEQ_100BP_UPSTREAM'+'\t'+'SIMILARITY'+'\n')
+# Create a header for output file	
+outfile.write('##CHROM:'+' '+'Chromosome' + '\n')
+outfile.write('##POS:'+' '+'Position(s)' + '\n')
+outfile.write('##RS_ID:'+' '+'Reference SNP ID number (rs ID' + '\n')
+outfile.write('##REF:'+' '+'Reference allele' + '\n')
+outfile.write('##ALT:'+' '+'Alternative allele' + '\n')
+outfile.write('##VAR_ID:'+' '+'Custom annotation of variant (6x7MDSNP01_000001000: line 6x7, Mareks Disease, chr1, pos1000)' + '\n')
+outfile.write('##VAR_TYPE:'+' '+'Mutation type' + '\n')
+outfile.write('##SAMPLE:'+' '+'Samples with mutation' + '\n')
+outfile.write('##DOWNSTREAM_POS:'+' '+'Downstream region of 100 bp flanking region' + '\n')
+outfile.write('##UPSTREAM_POS:'+' '+'Upstream region of 100bp flanking region' + '\n')
+#outfile.write('##CONSENSUS_SEQ_100BP_DOWNSTREAM:'+' '+'Downstream 100bp flanking sequence as a IUPAC flanking sequence' + '\n')
+#outfile.write('##SOMATIC_VARIANT:'+' '+'The sequence of the alternative allele but in a unique format' + '\n')
+#outfile.write('##CONSENSUS_SEQ_100BP_UPSTREAM:'+' '+'Upstream 100bp flanking sequence as a IUPAC flanking sequence' + '\n')
+outfile.write('##TARGET_SEQUENCE:'+' '+'Up- & Downstream 100bp flanking sequence as IUPAC flanking sequences surrounding [REF/ALT]' + '\n')
+outfile.write('##PRIORITY:'+' '+'Priority of variant (Value of 1 is of highest priority)' + '\n')
+outfile.write('#CHROM'+'\t'+'POS'+'\t'+'RS_ID'+'\t'+'REF'+'\t'+'ALT'+'\t'+'VAR_ID'+'\t'+'VAR_TYPE'+'\t'+'SAMPLE'+'\t'+'DOWNSTREAM_POS'+'\t'+'UPSTREAM_POS'+'\t'+'TARGET_SEQUENCE'+'\t'+'PRIORITY'+'\n')
 
 # Function for sequence matching similarity
 def similar(a, b):
@@ -313,6 +389,12 @@ def similar(a, b):
 # Define sets
 delinq_set = set()
 
+# Set priority to zero
+inpri = 0
+
+# Create a list of nucleotides
+nuc_list = ['A', 'C', 'G', 'T']
+
 # iterate through infile and capture variables
 for inline in open(infile):
 	if inline[0] != '#':
@@ -320,10 +402,13 @@ for inline in open(infile):
 		incol = inline.split('\t')
 		inchr = incol[0]
 		inpos = incol[1]
-		inref = incol[2]
-		inalt = incol[3]
+		inrs_id = incol[2]
+		inref = incol[3]
+		inalt = incol[4]
+		invar_id = incol[5]
 		invar = inchr +'\t'+ inpos +'\t'+ inref +'\t'+ inalt
-		insample = incol[11]
+		insample = incol[13]
+		inpri += 1
 		# write the int variant file in basic bed format for a single variant position from reference sequence
 		if len(inref) == 1 and len(inalt) == 1:
 			inmut = 'SNV'
@@ -339,7 +424,7 @@ for inline in open(infile):
 			inmut = 'INS'
 			start_var = int(inpos) - 1
 			end_var = int(inpos) + len(inalt) - 1
-			somvar = inref[0] + '+'*(len(inalt) -1)
+			som_var = inref[0] + '+'*(len(inalt) -1)
 		outfile_bed = "./data/somatic_var_bed.bed"
 		outfile_bed = open(outfile_bed, 'w')
 		outfile_bed.write(inchr + '\t' + str(start_var) + '\t' + str(end_var) + '\n')
@@ -355,7 +440,14 @@ for inline in open(infile):
 		ref_var_out = bedtools_var_out
 		#print('Variant' +' \t' + invar + '\t' + inmut)
 		#print('ref_var_out ' + ref_var_out)
-
+		
+		# Create an empty and unique matrix list of bam sequence counts
+		bam_mat_dic = {}
+		# Create an empty and unique matrix sum of bam sequence counts
+		sum_mat_dic = {}
+		# Create an empty set for mat_names
+		bam_mat_set = set()
+		
 		# write the int downstream file in basic bed format for 100 bp downstream of single var position from reference sequence
 		# For each upstream and downstream sequence:
 		for flank in ['up', 'down']:
@@ -363,18 +455,12 @@ for inline in open(infile):
 				start_flank_0 = int(inpos) + len(inref) - 1
 				end_flank_0 = start_flank_0 + 100
 				start_flank_1 = start_flank_0 + 1
-				end_flank_1 = end_flank_0 + 1
-				#elif inmut == 'DEL':
-				#	start_flank_0 = int(inpos) + len(inref) - 1
-				#	end_flank_0 = start_flank_0 + 100
-				#	start_flank_1 = start_flank_0 + 1
-				#	end_flank_1 = end_flank_0 + 1
+				end_flank_1 = start_flank_1 + 99
 			elif flank == 'down':
 				start_flank_0 = start_var - 100
 				end_flank_0 = start_var
-				start_flank_1 = start_var - 100
-				end_flank_1 = start_var
-
+				start_flank_1 = start_flank_0 + 1
+				end_flank_1 = start_flank_1 + 99
 			outfile_flank = "./data/somatic_var_flank.bed"
 			outfile_flank = open(outfile_flank, 'w')
 			outfile_flank.write(inchr + '\t' + str(start_flank_0) + '\t' + str(end_flank_0) + '\n')
@@ -387,152 +473,166 @@ for inline in open(infile):
 			# Decode the 'bytes' object to a string
 			ref_flank_out = flank_out.decode("utf-8").rstrip().split('\n')[1]
 			#print('Variant' +' \t' + invar + '\t' + inmut + '\t' + insample)
+			#print('REF: '+ inref)
+			#print('ALT: ' + inalt)
 			#print('Flank: ' + flank)
+			#print('start_flank_0: ' + str(start_flank_0))
+			#print('end_flank_0: ' + str(end_flank_0))
 			#print('start_flank_1: ' + str(start_flank_1))
 			#print('end_flank_1: ' + str(end_flank_1))
 			#print('ref_flank_out' +'\t'+ ref_flank_out)
 			#print(len(ref_flank_out))
-			#print(str(start_flank_1) + '-' + str(end_flank_1)) 
+			#print(str(start_flank_1) + '-' + str(end_flank_1))
+			# Matrix identifier
+			mat_name = flank + '_' + invar
 			# Create empty sequence list
 			bamseqList = []
 			# Iterate over bam files to collect downstream primer sequence for each sample
 			for bamfile in bams:
-					#print(bamfile)
-					# Create a samtools command to create a intermediate bam file of region of interest
-					samtools_view_cmd = "samtools view -ub "+bamfile+" "+inchr+":"+str(start_flank_1)+"-"+str(end_flank_1)+" > ./data/int_flank.bam"
-					os.system(samtools_view_cmd)
-					samtools_index_cmd = "samtools index ./data/int_flank.bam"
-					os.system(samtools_index_cmd)
-					#time.sleep(1)
-					# Samtools and mpileup work together to call variants at region of interest
-					samtools_mpileup_flank_cmd = "samtools mpileup -uf "+galgal5_fa+" ./data/int_flank.bam -d 5000 | bcftools call -c -Oz -o ./data/int_flank.vcf.gz"
-					os.system(samtools_mpileup_flank_cmd)
-					#time.sleep(1)
-					tabix_flank_cmd = "tabix -f -p vcf ./data/int_flank.vcf.gz"
-					os.system(tabix_flank_cmd)
-					filter_cmd = "bcftools filter -O z -o ./data/int_flank_filter.vcf.gz -s LOWQUAL -i'%QUAL>10' ./data/int_flank.vcf.gz"
-					os.system(filter_cmd)
-					tabix_filter_cmd = "tabix -f -p vcf ./data/int_flank_filter.vcf.gz"
-					os.system(tabix_filter_cmd)
-					#time.sleep(1)
+					# Sample
+					bam_sam = bamfile.split('final_bam/')[1].strip('_Bwa_RG_dedupped_realigned.bam')
+					# Matrix name w/ sample
+					mat_name_sam = flank + '_' + invar + '_' + bam_sam
+					# Query the bamfile with mpileup
+					#samtools_view_cmd = "samtools mpileup -r chr"+inchr+":"+str(start_flank_1)+"-"+str(end_flank_1)+" "bamfile+" > ./data/int_flank.bam"
+					samtools_view_cmd = "samtools mpileup --min-MQ 30 --min-BQ 30 -r "+inchr+":"+str(start_flank_1)+"-"+str(end_flank_1)+" "+bamfile
+					#print(inchr +':'+str(start_var)+'-'+str(end_var))
+					#print(inchr+':'+str(start_flank_1)+'-'+str(end_flank_1))
+					samtools_view_proc = subprocess.Popen([samtools_view_cmd], stdout=subprocess.PIPE, shell=True)
+					(bam_out, bam_err) = samtools_view_proc.communicate()
+					flank_bam_out = bam_out.decode("utf-8").rstrip().split('\n')
+					# Create a list for flanking sequence and change characters to uppercase.
+					flank_seq_dic = {}
+					# Set a starter value for past flank value
+					flank_seq_past = -1
+					for seq in flank_bam_out:
+						bam_pos = seq.split('\t')[1]
+						n = int(bam_pos) - start_flank_1
+						# Account for positions where samtools skips due to no coverage
+						if (int(n)-int(flank_seq_past)) != 1:
+							#print('flank_seq_past ' +str(flank_seq_past))
+							#print('flank pos: ' + str(n))
+							for p in range(flank_seq_past, n):
+								flank_seq_dic[p] = 'XXX'
+						# Sometimes samtools will output a coverage of 0 but no bases
+						elif seq.split('\t')[3] == '0':
+							flank_seq_dic[n] = 'XXX'
+						#print(str(n))
+						#print(seq.split('\t')[4])
+						#print(seq.split('\t')[4].upper())
+						#print(invar_id)
+						#print(seq)
+						elif seq.split('\t')[3] != '0':
+							flank_seq_dic[n] = seq.split('\t')[4].upper()
+						flank_seq_past = n
+					#flank_seqs = flank_bam_out.split('\n').split('\t')[4]
+					#print(len(flank_bam_out))
+					# Create the matrix
+					np_mat = numpy.zeros((len(nuc_list), 100))
+					# Grab values for the coordinates of the matrix
+					#flank_seq_past = -1
+					for (nuc_mp, nuc) in enumerate(nuc_list):
+						for flank_seq_mp, flank_seq in flank_seq_dic.items():
+							# Count the nucleotide and add to matrix
+							np_mat[nuc_mp, flank_seq_mp] = flank_seq.count(nuc)
+					#os.system(samtools_view_cmd)
+					bam_mat_dic[mat_name_sam] = np_mat
+			# Sum appropriate the matrices at each position across samples
+			# Create empty set
+			final_mat = numpy.zeros((4, 100))
+			for bam_mat_key, bam_mat_value in bam_mat_dic.items():
+				if re.search(mat_name, bam_mat_key) and bam_mat_key not in bam_mat_set:
+					bam_mat_set.add(bam_mat_key)
+					#os.system(samtools_view_cmd)
+					#print('mat name: ' + mat_name)
+					#print('bam_mat_key: ' + bam_mat_key)
+					#print('number of matrices' + str(len(bam_mat_value)))
+					#print(bam_mat_value)
+					#print(final_mat)
+					final_mat += bam_mat_value
+			#print(final_mat)
+			# Create an empty flank sequence
+			consensus_flank_list = []
+			for pos in range(100):
+				# Empty set of nucleotides
+				base_set = set()
+				for (nuc_mp, nuc) in enumerate(nuc_list):
+					vac = int(final_mat[nuc_mp,pos])
+					total = int(final_mat[:,pos].sum())
+					vaf = vac / total
+					#print('Nuc:' + nuc)
+					#print('POS: ' + str(pos))
+					#print(final_mat[nuc_mp,pos])
+					#print(final_mat[:,pos])
+					#print(final_mat[:,pos].sum())
+					#print('vac: ' + str(vac))
+					#print('total: ' + str(total))
+					#print('vaf: ' + str(vaf))
+					if vaf > 0.05:
+						base_set.add(str(nuc))
+					
+				if base_set == set('A'):
+					consensus_flank_list.append('A')
+				elif base_set == set('C'):
+					consensus_flank_list.append('C')
+				elif base_set == set('G'):
+					consensus_flank_list.append('G')
+				elif base_set == set('T'):
+					consensus_flank_list.append('T')
+				elif base_set == set('AG'):
+					consensus_flank_list.append('R')
+				elif base_set == set('CT'):
+					consensus_flank_list.append('Y')
+				elif base_set == set('GC'):
+					consensus_flank_list.append('S')
+				elif base_set == set('AT'):
+					consensus_flank_list.append('W')
+				elif base_set == set('GT'):
+					consensus_flank_list.append('K')
+				elif base_set == set('AC'):
+					consensus_flank_list.append('M')
+				else:
+					consensus_flank_list.append('N')
+			consensus_flank_IUPAC = ''.join(map(str,consensus_flank_list))
+			#print(consensus_flank_IUPAC)
 
-					# Determine the consensus sequence of the region of interest using ref chr and vcf file
-					with FastaVariant("/home/proj/MDW_genomics/steepale/galgal5/contig_fastas/"+inchr+".fa", './data/int_flank_filter.vcf.gz', het=True, hom=True) as consensus:
-						for chromosome in consensus:
-							if flank == 'down':
-								site = int(end_flank_1)
-							elif flank == 'up':
-								site = int(end_flank_1 - 1)
-							bam_flank_100 = chromosome[site-100:site]
-							final_flank_out = bam_flank_100.seq
-							# Add sequences to a list
-							bamseqList.append(final_flank_out)
-
-							# Check for the accuracy of each sample's 100bp sequence with that of the reference sequence
-							similarity = similar(ref_flank_out, final_flank_out)
-						if similarity < 1  and flank == 'down' and invar not in delinq_set:
-							delinq_set.add(invar)
-							delinquent_file.write('\n' + invar + '\n')
-							delinquent_file.write('Downstream Reference Sequence:' + '\n' + ref_flank_out + '\n')
-							delinquent_file.write(bamfile + ' SIMILARITY: ' + str(similarity) + '\n' + final_flank_out + '\n')
-						elif similarity < 1 and flank == 'down' and invar in delinq_set:
-							delinquent_file.write(bamfile + ' SIMILARITY: ' + str(similarity) + '\n' + final_flank_out + '\n')
-						if similarity < 1  and flank == 'up' and invar not in delinq_set:
-							delinq_set.add(invar)
-							delinquent_file.write('\n' + invar + '\n')
-							delinquent_file.write('Upstream Reference Sequence:' + '\n' + ref_flank_out + '\n')
-							delinquent_file.write(bamfile + ' SIMILARITY: ' + str(similarity) + '\n' + final_flank_out + '\n')
-						elif similarity < 1 and flank == 'up' and invar in delinq_set:
-							delinquent_file.write(bamfile + ' SIMILARITY: ' + str(similarity) + '\n' + final_flank_out + '\n')
-
-			# List of all downstreamm flanking sequences for 1 sample = bamseqList
-			# load the motifs into an array-like object in biopython
-			m = motifs.create(bamseqList)
-			# create a IUPAC consensus sequence
-			consensus_flank_IUPAC = m.degenerate_consensus
-			# create a consensus sequence of the most frequent nucleotide per loci (no ambigous letters)
-			consensus_flank = m.consensus
 			if flank == 'up':
-				consensus_upstream = str(consensus_flank)
-				similarity_up = similar(ref_flank_out, consensus_upstream)
-				upstream_pos = inchr+':'+str(start_flank_1)+'-'+str(end_flank_1 - 1)
+				consensus_upstream = str(consensus_flank_IUPAC)
+				upstream_pos = inchr+':'+str(start_flank_1)+'-'+str(end_flank_1)
 			elif flank == 'down':
-				consensus_downstream = str(consensus_flank)
-				similarity_down = similar(ref_flank_out, consensus_downstream)
-				downstream_pos = inchr+':'+str(start_flank_1 + 1)+'-'+str(end_flank_1)
+				consensus_downstream = str(consensus_flank_IUPAC)
+				downstream_pos = inchr+':'+str(start_flank_1)+'-'+str(end_flank_1)
 			#print(m.counts)
 			#print('Consensus: ' + '\n' + consensus_flank)
 			#print('IUPAC: ' +'\n' + consensus_flank_IUPAC)
-		outfile.write(inchr+'\t'+inpos+'\t'+inref+'\t'+inalt+'\t'+inmut+'\t'+insample+'\t'+downstream_pos+'\t'+upstream_pos+'\t'+consensus_downstream+'\t'+som_var+'\t'+consensus_upstream+'\t'+str(similarity_down)+';'+str(similarity_up)+'\n')
+		print(inpri)
+		outfile.write(inchr+'\t'+inpos+'\t'+inrs_id+'\t'+inref+'\t'+inalt+'\t'+invar_id+'\t'+inmut+'\t'+insample+'\t'+downstream_pos+'\t'+upstream_pos+'\t'+consensus_downstream+'['+inref+'/'+inalt+']'+consensus_upstream+'\t'+str(inpri)+'\n')
 
 outfile.close()
-########################	
+############################
 
-# Sloppy script run to get the downstream and upstream sequences for 50 bp regions
-python ./scripts/somatic_snvs_indels_flanking_regions.py ./data/somatic_snvs_and_indels_final_priority_50bp.txt \
+# Run the script one more time on these 50bp sequences. You will need to adjust the calls in excel and the output from this file should be ignored
+# Note, the input file was manually curated in excel. Not worth it to make a script.
+python ./scripts/somatic_snvs_indels_flanking_regions.py \
+./data/somatic_snvs_and_indels_final_priority_50bp.txt \
 ./results/somatic_snvs_indels_flanking_100bp_top50bp.int
-		
-# Grant priority column to ./results/somatic_snvs_indels_flanking_100bp_top150
-python ./scripts/grant_priority_sites_w_flanks.py \
-./results/somatic_snvs_and_indels_final_priority_n150_w_priority.txt \
-./results/somatic_snvs_and_indels_final_priority_n150_no_priority.txt \
-./results/somatic_snvs_and_indels_top_156.txt
 
-# ./scripts/grant_priority_sites_w_flanks.py
-############################
-import sys
-import os
+# Manually curate ./results/somatic_snvs_indels_flanking_100bp_top50bp.int and integrate results into final file:
+./results/somatic_snvs_indels_flanking_100bp_top150_w50bp.txt
 
-# infiles
-p_file = sys.argv[1]
-no_p_file= sys.argv[2]
+# Format the file for Agriplex genomics variant validation version 1
+(grep "^##" ./results/somatic_snvs_indels_flanking_100bp_top150_w50bp.txt; \
+grep -v "^##" ./results/somatic_snvs_indels_flanking_100bp_top150_w50bp.txt | 
+sed 's/^#CHROM/CHROM/' | \
+awk '{ print $3 "\t" $6 "\t" $11 "\t" $1 "\t" $2 "\t" $4 "\t" $5 "\t" $7 "\t" $9 "\t" $10 "\t" $12}') | \
+sed 's/^RS_ID/#RS_ID/' > \
+./results/somatic_snvs_indels_agriplex_form_top150_w50bp.txt
 
-# outfile
-outfile = open(sys.argv[3], 'w')
+# ./results/somatic_snvs_indels_agriplex_form_top150_w50bp.txt is the final file with high confidence validation regions.
+# /Users/Alec/Documents/Bioinformatics/MDV_Project/illumina_validation/supporting_docs/SNP_Submission_form_top150_w50bp.xlsx is final submission to agriplex
 
-# Create empty dictionary
-var2prior = {}
 
-# iterate through infile with priority and create dictionary of variants and their corresponding priority
-for p_line in open(p_file):
-	if p_line[0] != '#':
-		p_line = p_line.rstrip()
-		p_col = p_line.split('\t')
-		p_var = p_col[0] + p_col[1] + p_col[2] + p_col[3]
-		p_priority = p_col[18]
-		var2prior[p_var] = p_priority
 
-# iterate through the file with no priority and add the priority to the last column
-for no_p_line in open(no_p_file):
-	# Write the header for the outfile
-	no_p_line = no_p_line.rstrip()
-	if no_p_line[0] == '#':
-		outfile.write(no_p_line + '\t' + 'PRIORITY' + '\n')
-	if no_p_line[0] != '#':
-		no_p_col = no_p_line.split('\t')
-		CHROM = no_p_col[0]
-		POS = no_p_col[1]
-		REF = no_p_col[2]
-		ALT = no_p_col[3]
-		no_p_var = no_p_col[0] + no_p_col[1] + no_p_col[2] + no_p_col[3]
-		VARIANT_TYPE = no_p_col[4]
-		SAMPLE = no_p_col[5]
-		DOWNSTREAM_POS= no_p_col[6]
-		UPSTREAM_POS = no_p_col[7]
-		IUPAC_CONSENSUS_SEQ_100BP_DOWNSTREAM = no_p_col[8]
-		SOMATIC_VARIANT = no_p_col[9]
-		IUPAC_CONSENSUS_SEQ_100BP_UPSTREAM = no_p_col[10]
-		SIMILARITY = no_p_line[11]
-		if no_p_var in var2prior.keys():
-			PRIORITY = str(var2prior[no_p_var])
-			#Write the outfile
-			outfile.write(no_p_line + '\t' + PRIORITY + '\n')
-outfile.close()
-############################
-
-# Final files after custom manipulation in excel:
-./results/somatic_snvs_and_indels_top_156.txt
-./results/somatic_snvs_and_indels_final_priority_n150.txt
 
 
 
